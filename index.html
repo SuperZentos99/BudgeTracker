@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Budget">
+<link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icon-180.png">
+<meta name="theme-color" content="#0f766e"><title>Budget</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--tx:#111827;--mu:#6b7280;--ac:#0f766e;--bd:#e5e7eb;--ok:#15803d;--wn:#b45309;--ov:#b91c1c;color-scheme:light}
+@media(prefers-color-scheme:dark){:root{--bg:#0b0f14;--card:#161c24;--tx:#f3f4f6;--mu:#9ca3af;--ac:#2dd4bf;--bd:#27303b;--ok:#4ade80;--wn:#fbbf24;--ov:#f87171;color-scheme:dark}}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--tx);font:16px -apple-system,system-ui,sans-serif}
+body{padding:env(safe-area-inset-top) 0 calc(70px + env(safe-area-inset-bottom))}
+nav{display:flex;overflow-x:auto;gap:6px;padding:10px 12px;position:sticky;top:0;background:var(--bg);z-index:5}
+nav button{flex:none;padding:10px 14px;border-radius:20px;border:1px solid var(--bd);background:var(--card);color:var(--tx);font-size:15px}
+nav button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+main{padding:4px 12px 20px;max-width:640px;margin:auto}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin:10px 0}
+.card[data-go]{cursor:pointer}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid .card{margin:0}
+.l{color:var(--mu);font-size:13px}.n{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.row{display:flex;justify-content:space-between;gap:8px;padding:11px 0;border-bottom:1px solid var(--bd)}.row:last-child{border:0}
+.ok{color:var(--ok)}.warn{color:var(--wn)}.over{color:var(--ov)}
+.bar{height:8px;border-radius:4px;background:var(--bd);overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--ok)}
+.bar.warn i{background:var(--wn)}.bar.over i{background:var(--ov)}
+button.b,.fab{background:var(--ac);color:#fff;border:0;border-radius:12px;padding:13px 16px;font-size:16px;margin:4px 4px 4px 0}
+button.g{background:var(--card);color:var(--tx);border:1px solid var(--bd)}button.d{background:var(--ov)}
+.fab{position:fixed;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));width:60px;height:60px;border-radius:30px;font-size:32px;z-index:6;box-shadow:0 4px 14px #0004}
+input,select,textarea{width:100%;padding:13px;border-radius:10px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);font-size:16px;margin:4px 0 10px}
+label{font-size:13px;color:var(--mu)}
+.ov{position:fixed;inset:0;background:#0008;z-index:10;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom))}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}.chips button{padding:8px 12px;border-radius:16px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}.chips .on{background:var(--ac);color:#fff}
+#toast{position:fixed;top:calc(10px + env(safe-area-inset-top));left:12px;right:12px;z-index:30;background:var(--wn);color:#000;padding:12px;border-radius:12px;display:none}
+#lock{position:fixed;inset:0;background:var(--bg);z-index:40;display:none;flex-direction:column;align-items:center;justify-content:center;padding:30px}
+#lock input{max-width:240px;text-align:center;font-size:28px;letter-spacing:8px}
+h2{margin:14px 0 4px}small{color:var(--mu)}
+</style></head><body>
+<div id="toast"></div>
+<div id="lock"><h2>Budget locked</h2><input id="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="PIN"><button class="b" id="unlock">Unlock</button><small id="lockmsg"></small></div>
+<nav id="nav"></nav><main id="main"></main><button class="fab" id="fab" aria-label="Add transaction">+</button>
+<script src="core.js"></script>
+<script>
+const $=s=>document.querySelector(s),C=Core;
+const uid=()=>crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2);
+const SG=c=>(c<0?'-':'')+'S$'+(Math.abs(c)/100).toLocaleString('en-SG',{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const today=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const MON=()=>today().slice(0,7);
+let db,D={},tab='Home',month=MON();
+const TABS=['Home','Transactions','Budgets','Bills','Savings','Debts','Reports','Settings'];
+/* ---------- storage ---------- */
+const open=()=>new Promise((ok,no)=>{const r=indexedDB.open('budget',1);r.onupgradeneeded=()=>C.STORES.forEach(s=>r.result.createObjectStore(s,{keyPath:'id'}));r.onsuccess=()=>{db=r.result;ok()};r.onerror=()=>no(r.error)});
+const load=async()=>{for(const s of C.STORES)D[s]=await new Promise(r=>{const q=db.transaction(s).objectStore(s).getAll();q.onsuccess=()=>r(q.result)})};
+const tx=(ops)=>new Promise((ok,no)=>{const t=db.transaction([...new Set(ops.map(o=>o[1]))],'readwrite');
+ ops.forEach(([k,s,o])=>k==='put'?t.objectStore(s).put(o):k==='del'?t.objectStore(s).delete(o):t.objectStore(s).clear());
+ t.oncomplete=ok;t.onerror=t.onabort=()=>no(t.error||new Error('Storage failed'))});
+const put=async(s,o)=>{try{await tx([['put',s,o]]);await load()}catch(e){alert('Could not save: '+e.message)}render()};
+const cfg=()=>D.settings.find(x=>x.id==='cfg')||{id:'cfg'};
+const setCfg=p=>put('settings',{...cfg(),...p});
+const nm=(s,id)=>id?(D[s].find(x=>x.id===id)?.name||'(deleted)'):'';
+const act=s=>D[s].filter(x=>x.active!==false);
+const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',5000)};
+/* ---------- alerts (fire once per crossing; re-arm when dropped) ---------- */
+async function alerts(){const m=MON(),b=C.budget(D.budgets,m),st=cfg().alerts||{},ns={...st};
+ const chk=(key,label,sp,lim)=>{const s=C.status(sp,lim),lv={none:0,ok:0,warn:1,over:2}[s],pv=st[m+key]||0;
+  if(lv>pv)toast(label+(lv==2?' has reached/exceeded 100%':' is at 80% or more')+' of its limit.');ns[m+key]=lv};
+ chk('all','Overall budget',C.spend(D.transactions,m),b.overallCents);
+ act('categories').filter(c=>c.kind==='expense').forEach(c=>chk(c.id,c.name,C.spend(D.transactions,m,c.id),b.limits[c.id]));
+ if(JSON.stringify(ns)!==JSON.stringify(st))await tx([['put','settings',{...cfg(),alerts:ns}]]).then(load)}
+/* ---------- modal/form ---------- */
+function modal(html){const o=document.createElement('div');o.className='ov';o.innerHTML='<div class="sheet">'+html+'</div>';
+ o.onclick=e=>{if(e.target===o)o.remove()};document.body.appendChild(o);return o}
+const opts=(a,v,blank)=>(blank?'<option value="">'+blank+'</option>':'')+a.map(([k,l])=>`<option value="${esc(k)}"${k===v?' selected':''}>${esc(l)}</option>`).join('');
+const FL={amount:'Amount (S$)',principal:'Principal repaid (S$)',interest:'Interest/fees (S$, optional)',date:'Date',accountId:'Account',toAccountId:'To account',categoryId:'Category',sourceId:'Income source',goalId:'Savings goal',debtId:'Debt',note:'Note'};
+const FT={expense:['amount','date','accountId','categoryId','note'],income:['amount','date','accountId','sourceId','note'],transfer:['amount','date','accountId','toAccountId','note'],savings_in:['amount','date','accountId','goalId','note'],savings_out:['amount','date','accountId','goalId','note'],debt_repay:['principal','interest','date','accountId','debtId','note'],debt_borrow:['amount','date','accountId','debtId','note'],debt_principal:['amount','date','accountId','debtId','note'],debt_interest:['amount','date','accountId','debtId','note']};
+const TL={expense:'Expense',income:'Income',transfer:'Transfer',savings_in:'To savings',savings_out:'From savings',debt_repay:'Repay debt',debt_borrow:'Borrow'};
+function field(k,v,type){
+ if(k==='date')return`<input name="date" type="date" value="${v||today()}">`;
+ if(k==='note')return`<input name="note" value="${esc(v)}" maxlength="200">`;
+ if(k==='amount'||k==='principal'||k==='interest')return`<input name="${k}" inputmode="decimal" placeholder="0.00" value="${v??''}" ${k==='amount'?'autofocus':''}>`;
+ const ext=(type.startsWith('savings')&&k==='accountId')?'(external / no account)':'';
+ const L={accountId:act('accounts').map(a=>[a.id,a.name]),toAccountId:act('accounts').map(a=>[a.id,a.name]),categoryId:act('categories').filter(c=>c.kind==='expense').map(c=>[c.id,c.name]),sourceId:act('sources').map(s=>[s.id,s.name]),goalId:act('goals').map(g=>[g.id,g.name]),debtId:act('debts').map(d=>[d.id,d.name])}[k];
+ return`<select name="${k}">${opts(L,v||(k==='accountId'&&!ext?L[0]?.[0]:''),ext||(k==='categoryId'?'(none)':''))}</select>`}
+function txForm(type='expense',ex){
+ const t=ex?ex.type:type,v=ex||{},o=modal('');const sh=o.firstChild;
+ sh.innerHTML=`${ex?'':'<div class="chips">'+Object.keys(TL).map(k=>`<button class="${k===t?'on':''}" data-t="${k}">${TL[k]}</button>`).join('')+'</div>'}
+ <form>${FT[t].map(k=>`<label>${FL[k]}</label>${field(k,k==='amount'&&ex?(ex.amountCents/100).toFixed(2):v[k],t)}`).join('')}
+ <button class="b">${ex?'Save changes':'Save'}</button>${ex?'<button type="button" class="b d" id="del">Delete</button>':''}</form>`;
+ sh.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{o.remove();txForm(b.dataset.t)});
+ if(ex)sh.querySelector('#del').onclick=async()=>{if(confirm('Delete this transaction?')){await tx([['del','transactions',ex.id]]);await load();o.remove();render()}};
+ sh.querySelector('form').onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+  const base={date:f.date,accountId:f.accountId||null,note:f.note||'',toAccountId:f.toAccountId||null,sourceId:f.sourceId||null,categoryId:f.categoryId||null,goalId:f.goalId||null,debtId:f.debtId||null};
+  const acc=D.accounts.find(a=>a.id===base.accountId);base.paymentMethod=acc?(acc.type==='cash'?'Cash':'Debit card'):'';
+  const err=m=>alert(m);if(!/^\d{4}-\d{2}-\d{2}$/.test(base.date))return err('Enter a valid date.');
+  if(t!=='savings_in'&&t!=='savings_out'&&!base.accountId)return err('Choose an account.');
+  if(t==='transfer'&&(!base.toAccountId||base.toAccountId===base.accountId))return err('Choose two different accounts.');
+  if(t.startsWith('savings')&&!base.goalId)return err('Choose a savings goal.');
+  if(t.startsWith('debt')&&!base.debtId)return err('Choose a debt.');
+  const now=new Date().toISOString(),mk=(ty,c)=>({...base,id:ex?ex.id:uid(),type:ty,amountCents:c,createdAt:ex?ex.createdAt:now,updatedAt:now});
+  const ops=[];
+  if(t==='debt_repay'){const p=C.cents(f.principal),i=f.interest?.trim()?C.cents(f.interest):0;if(!p)return err('Enter a valid principal amount.');if(i===null)return err('Invalid interest amount.');
+   const g=uid();ops.push(['put','transactions',{...mk('debt_principal',p),group:g}]);if(i)ops.push(['put','transactions',{...mk('debt_interest',i),id:uid(),group:g}])}
+  else{const c=C.cents(f.amount);if(!c)return err('Enter a valid amount greater than 0.');ops.push(['put','transactions',mk(t,c)])}
+  try{await tx(ops);await load()}catch(x){return err('Could not save: '+x.message)}
+  o.remove();render();alerts()}}
+function simpleForm(title,fields,cb,del){const o=modal(`<h3>${title}</h3><form>${fields.map(([k,l,t,v,op])=>`<label>${l}</label>`+(t==='select'?`<select name="${k}">${opts(op,v)}</select>`:`<input name="${k}" type="${t==='date'?'date':'text'}" ${t==='money'?'inputmode="decimal"':''} value="${esc(v)}">`)).join('')}<button class="b">Save</button>${del?'<button type="button" class="b d" id="del">Delete</button>':''}</form>`);
+ o.querySelector('form').onsubmit=async e=>{e.preventDefault();if(await cb(Object.fromEntries(new FormData(e.target))))o.remove()};
+ if(del)o.querySelector('#del').onclick=async()=>{if(confirm('Delete?')){await del();o.remove()}}}
+/* ---------- views ---------- */
+const bar=(s,l)=>{const st=C.status(s,l);return`<div class="bar ${st}"><i style="width:${Math.min(100,C.pct(s,l))}%"></i></div>`};
+const badge=(s,l)=>({none:'<small>no limit</small>',ok:'<small class="ok">on track</small>',warn:'<small class="warn">approaching limit</small>',over:'<small class="over">limit reached</small>'})[C.status(s,l)];
+const billsDue=()=>D.bills.filter(b=>!b.paid).sort((a,b)=>a.dueDate<b.dueDate?-1:1);
+const V={
+Home(){const m=MON(),T=D.transactions,B=C.balances(D.accounts,T),cash=Object.entries(B).reduce((s,[id,v])=>s+(D.accounts.find(a=>a.id===id).active===false?0:v),0),
+ b=C.budget(D.budgets,m),sp=C.spend(T,m),sav=D.goals.reduce((s,g)=>s+C.goalBal(g,T),0),debt=D.debts.reduce((s,d)=>s+C.debtBal(d,T),0),up=billsDue().slice(0,3);
+ return`<div class="card" data-go="Budgets"><div class="l">Remaining monthly budget (spending target ${SG(b.overallCents)})</div><div class="n ${C.status(sp,b.overallCents)==='over'?'over':''}">${SG(b.overallCents-sp)}</div>${bar(sp,b.overallCents)}${badge(sp,b.overallCents)}</div>
+ <div class="grid"><div class="card" data-go="Settings"><div class="l">Available cash (all accounts)</div><div class="n">${SG(cash)}</div></div>
+ <div class="card" data-go="Reports"><div class="l">Income this month</div><div class="n">${SG(C.income(T,m))}</div></div>
+ <div class="card" data-go="Transactions"><div class="l">Expenses this month</div><div class="n">${SG(sp)}</div></div>
+ <div class="card" data-go="Savings"><div class="l">Savings</div><div class="n">${SG(sav)}</div></div>
+ <div class="card" data-go="Debts"><div class="l">Outstanding debt</div><div class="n">${SG(debt)}</div></div>
+ <div class="card" data-go="Bills"><div class="l">Unpaid bills</div><div class="n">${billsDue().length}</div></div></div>
+ <small>Available cash is money in your accounts; the budget is a spending ceiling. They are different numbers.</small>
+ <div class="card"><b>Upcoming bills</b>${up.map(x=>`<div class="row"><span>${esc(x.name)} <small>${x.dueDate}</small></span><span>${SG(x.amountCents)}</span></div>`).join('')||'<div class="l">None</div>'}</div>
+ <div class="card"><b>Budget warnings</b>${act('categories').filter(c=>c.kind==='expense'&&['warn','over'].includes(C.status(C.spend(T,m,c.id),b.limits[c.id]))).map(c=>`<div class="row"><span>${esc(c.name)}</span>${badge(C.spend(T,m,c.id),b.limits[c.id])}</div>`).join('')||'<div class="l">No category warnings</div>'}</div>`},
+Transactions(){const q=(window.__q||'').toLowerCase(),ty=window.__ty||'',L=[...D.transactions].filter(t=>(!ty||t.type===ty)&&(!q||(nm('categories',t.categoryId)+nm('sources',t.sourceId)+nm('accounts',t.accountId)+(t.note||'')).toLowerCase().includes(q))).sort((a,b)=>a.date<b.date?1:a.date>b.date?-1:a.createdAt<b.createdAt?1:-1);
+ return`<input id="q" placeholder="Search" value="${esc(window.__q||'')}"><select id="ty">${opts(C.TYPES.map(x=>[x,x.replace('_',' ')]),ty,'All types')}</select>
+ <div class="card">${L.map(t=>`<div class="row" data-tx="${t.id}"><span>${esc(nm('categories',t.categoryId)||nm('sources',t.sourceId)||t.type.replace('_',' '))}<br><small>${t.date} · ${esc(nm('accounts',t.accountId))}${t.type==='transfer'?' → '+esc(nm('accounts',t.toAccountId)):''} · ${t.type.replace('_',' ')}</small></span><b class="${t.type==='income'?'ok':''}">${SG(t.amountCents)}</b></div>`).join('')||'<div class="l">No transactions yet. Tap +.</div>'}</div>`},
+Budgets(){const m=MON(),T=D.transactions,b=C.budget(D.budgets,m),sp=C.spend(T,m);
+ return`<div class="card"><div class="l">Overall target for ${m}</div><div class="n">${SG(sp)} / ${SG(b.overallCents)}</div>${bar(sp,b.overallCents)}${badge(sp,b.overallCents)}<br><button class="b g" id="ot">Change target (from this month)</button></div>
+ <h2>Category limits</h2><div class="card">${act('categories').filter(c=>c.kind==='expense').map(c=>{const l=b.limits[c.id],s=C.spend(T,m,c.id);return`<div class="row" data-lim="${c.id}"><span>${esc(c.name)}<br>${l?bar(s,l):''}${badge(s,l)}</span><span>${SG(s)}${l?' / '+SG(l):''}<br><small>${l?'left '+SG(l-s):'tap to set'}</small></span></div>`}).join('')||'<div class="l">Add expense categories in Settings.</div>'}</div>
+ <small>Limits are sub-limits you choose; they need not sum to the target. Spending includes interest/fees but not principal, transfers or savings.</small>`},
+Bills(){return`<button class="b" id="nb">Add bill</button><div class="card">${[...D.bills].sort((a,b)=>a.dueDate<b.dueDate?-1:1).map(x=>`<div class="row"><span>${esc(x.name)}<br><small>${x.dueDate} · ${x.recurrence==='none'?'one-off':x.recurrence}${x.paid?' · paid':''}</small></span><span>${SG(x.amountCents)}<br>${x.paid?'':`<button class="b" data-pay="${x.id}">Mark paid</button>`}<button class="b g" data-eb="${x.id}">Edit</button></span></div>`).join('')||'<div class="l">No bills.</div>'}</div><small>Unpaid bills do not affect balances. Marking paid records one expense.</small>`},
+Savings(){const T=D.transactions;return`<button class="b" id="ng">Add savings goal</button><div class="card">${D.goals.map(g=>{const v=C.goalBal(g,T);return`<div class="row" data-g="${g.id}"><span>${esc(g.name)}${g.targetCents?bar(v,g.targetCents):''}</span><span>${SG(v)}${g.targetCents?' / '+SG(g.targetCents):''}</span></div>`}).join('')||'<div class="l">No goals. Savings use "To savings" / "From savings" entries.</div>'}</div>`},
+Debts(){const T=D.transactions;return`<button class="b" id="nd">Add debt</button><div class="card">${D.debts.map(d=>`<div class="row" data-d="${d.id}"><span>${esc(d.name)}<br><small>${d.dueDate?'due '+d.dueDate:''} ${esc(d.note||'')}</small></span><b>${SG(C.debtBal(d,T))}</b></div>`).join('')||'<div class="l">No debts. Use "Repay debt" in + to record principal and interest.</div>'}</div><small>Debt = opening + borrowing + interest − principal. Only interest/fees count as spending.</small>`},
+Reports(){const T=D.transactions.filter(t=>C.inM(t,month)),by=(f,fil)=>{const m={};T.filter(fil).forEach(t=>{const k=f(t)||'(none)';m[k]=(m[k]||0)+t.amountCents});return Object.entries(m).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="row"><span>${esc(k)}</span><b>${SG(v)}</b></div>`).join('')||'<div class="l">—</div>'};
+ const b=C.budget(D.budgets,month),sp=C.spend(D.transactions,month),ms=[...Array(6)].map((_,i)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-5+i);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')}),mx=Math.max(1,...ms.map(x=>C.spend(D.transactions,x)));
+ return`<input type="month" id="rm" value="${month}">
+ <div class="card"><b>Budget vs actual</b><div class="row"><span>Overall</span><span>${SG(sp)} / ${SG(b.overallCents)}</span></div>${act('categories').filter(c=>b.limits[c.id]).map(c=>`<div class="row"><span>${esc(c.name)}</span><span>${SG(C.spend(D.transactions,month,c.id))} / ${SG(b.limits[c.id])}</span></div>`).join('')}</div>
+ <div class="card"><b>Income by source</b>${by(t=>nm('sources',t.sourceId),t=>t.type==='income')}</div>
+ <div class="card"><b>Expenses by category</b>${by(t=>nm('categories',t.categoryId),t=>C.TYPES.slice(1,2).includes(t.type)||t.type==='debt_interest')}</div>
+ <div class="card"><b>Spending by account · method</b>${by(t=>nm('accounts',t.accountId)+' · '+(t.paymentMethod||'-'),t=>t.type==='expense'||t.type==='debt_interest')}</div>
+ <div class="card"><b>Transfers (not income/expense)</b>${by(t=>nm('accounts',t.accountId)+' → '+nm('accounts',t.toAccountId),t=>t.type==='transfer')}</div>
+ <div class="card"><b>Savings</b>${by(t=>(t.type==='savings_in'?'Contributions':'Withdrawals'),t=>t.type.startsWith('savings'))}</div>
+ <div class="card"><b>Debt</b>${by(t=>({debt_principal:'Principal repaid',debt_interest:'Interest/fees',debt_borrow:'Borrowed'})[t.type],t=>t.type.startsWith('debt'))}</div>
+ <div class="card"><b>Spending trend</b>${ms.map(x=>`<div class="row"><span>${x}</span><span style="flex:1;margin:0 10px"><div class="bar"><i style="width:${C.spend(D.transactions,x)*100/mx}%"></i></div></span><span>${SG(C.spend(D.transactions,x))}</span></div>`).join('')}</div>`},
+Settings(){const c=cfg(),B=C.balances(D.accounts,D.transactions);
+ const L=(s,k)=>D[s].map(x=>`<div class="row" data-tg="${s}:${x.id}"><span>${esc(x.name)}${x.active===false?' (inactive)':''}${k?'<br><small>'+x.kind+'</small>':''}</span><span>${s==='accounts'?SG(B[x.id]):''}</span></div>`).join('')||'<div class="l">None</div>';
+ return`${D.accounts.length?'':'<div class="card"><b>Welcome — guided setup</b><br><small>Everything is optional except one account. Nothing is auto-filled.</small><br><button class="b" id="setup">Start setup</button></div>'}
+ <div class="card"><b>Accounts</b> <small>tap to rename / toggle active</small>${L('accounts')}<button class="b g" id="na">Add account</button></div>
+ <div class="card"><b>Categories</b>${L('categories',1)}<button class="b g" id="nc">Add category</button></div>
+ <div class="card"><b>Income sources</b>${L('sources')}<button class="b g" id="ns">Add source</button></div>
+ <div class="card"><b>Backup</b><br><small>Last backup: ${c.lastBackup?new Date(c.lastBackup).toLocaleString():'never'}</small><br>
+ <button class="b" id="bk">Download JSON backup</button><button class="b g" id="rs">Restore…</button><button class="b g" id="cv">Export CSV</button><input type="file" id="rf" accept=".json" hidden>
+ <p><small>Data lives only on this device. Clearing Safari data, deleting the app or losing the phone destroys it. Without a backup it cannot be recovered.</small></p></div>
+ <div class="card"><b>PIN lock</b><br><small>${c.pinHash?'PIN is set.':'No PIN set.'} The PIN only gates this screen; it does not encrypt the stored data or exported files.</small><br><button class="b g" id="pn">${c.pinHash?'Change':'Set'} PIN</button>${c.pinHash?'<button class="b g" id="pr">Remove PIN</button>':''}</div>`}};
+/* ---------- render & events ---------- */
+function render(){$('#nav').innerHTML=TABS.map(t=>`<button class="${t===tab?'on':''}" data-tab="${t}">${t}</button>`).join('');$('#main').innerHTML=V[tab]();
+ $('#nav .on')?.scrollIntoView({inline:'center',block:'nearest'})}
+const go=t=>{tab=t;render();scrollTo(0,0)};
+const dl=(name,text,type)=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click()};
+document.addEventListener('click',async e=>{const t=e.target,g=s=>t.closest(s);
+ if(g('[data-tab]'))return go(g('[data-tab]').dataset.tab);if(g('[data-go]'))return go(g('[data-go]').dataset.go);
+ if(g('[data-tx]'))return txForm(null,D.transactions.find(x=>x.id===g('[data-tx]').dataset.tx));
+ if(t.id==='fab'){if(!D.accounts.length){go('Settings');return alert('Add an account first (Settings).')}return txForm('expense')}
+ const id=t.id;
+ if(id==='ot'){const b=C.budget(D.budgets,MON());simpleForm('Overall monthly target',[['v','Amount (S$)','money',(b.overallCents/100).toFixed(2)]],async f=>{const c=C.cents(f.v);if(!c){alert('Invalid amount');return}const m=MON();await put('budgets',{...b,id:m,month:m,overallCents:c,limits:{...b.limits}});alerts();return 1})}
+ if(g('[data-lim]')){const cid=g('[data-lim]').dataset.lim,b=C.budget(D.budgets,MON());simpleForm(nm('categories',cid)+' monthly limit',[['v','Amount (S$), blank to unset','money',b.limits[cid]?(b.limits[cid]/100).toFixed(2):'']],async f=>{const l={...b.limits};if(f.v.trim()==='')delete l[cid];else{const c=C.cents(f.v);if(!c){alert('Invalid amount');return}l[cid]=c}const m=MON();await put('budgets',{id:m,month:m,overallCents:b.overallCents,limits:l});alerts();return 1})}
+ if(id==='nb'||g('[data-eb]')){const x=g('[data-eb]')?D.bills.find(b=>b.id===g('[data-eb]').dataset.eb):{};
+  simpleForm('Bill',[['name','Name','text',x.name],['amt','Amount (S$)','money',x.amountCents?(x.amountCents/100).toFixed(2):''],['dueDate','Due date','date',x.dueDate||today()],['recurrence','Repeats','select',x.recurrence||'none',['none','weekly','monthly','yearly'].map(v=>[v,v])],['categoryId','Category','select',x.categoryId||'',[['','(none)'],...act('categories').filter(c=>c.kind==='expense').map(c=>[c.id,c.name])]],['accountId','Pay from','select',x.accountId||'',act('accounts').map(a=>[a.id,a.name])]],async f=>{const c=C.cents(f.amt);if(!f.name.trim()||!c||!f.dueDate||!f.accountId){alert('Name, amount, due date and account are required.');return}await put('bills',{...x,id:x.id||uid(),name:f.name.trim(),amountCents:c,dueDate:f.dueDate,recurrence:f.recurrence,categoryId:f.categoryId||null,accountId:f.accountId,paid:x.paid||false});return 1},x.id&&(async()=>{await tx([['del','bills',x.id]]);await load();render()}))}
+ if(g('[data-pay]')){const b=D.bills.find(x=>x.id===g('[data-pay]').dataset.pay),occ=b.id+':'+b.dueDate;
+  if(b.paid||D.transactions.some(x=>x.occ===occ))return alert('This bill is already paid.');
+  const now=new Date().toISOString(),a=D.accounts.find(x=>x.id===b.accountId),nb={...b};
+  if(b.recurrence==='none')nb.paid=true;else{const d=new Date(b.dueDate+'T00:00:00');if(b.recurrence==='weekly')d.setDate(d.getDate()+7);else{const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+(b.recurrence==='yearly'?12:1));d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()))}nb.dueDate=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+  try{await tx([['put','transactions',{id:uid(),type:'expense',date:today(),amountCents:b.amountCents,categoryId:b.categoryId,accountId:b.accountId,paymentMethod:a?(a.type==='cash'?'Cash':'Debit card'):'',note:'Bill: '+b.name,billId:b.id,occ,createdAt:now,updatedAt:now}],['put','bills',nb]]);await load()}catch(x){alert('Failed: '+x.message)}render();alerts()}
+ if(id==='ng'||g('[data-g]')){const x=g('[data-g]')?D.goals.find(a=>a.id===g('[data-g]').dataset.g):{};
+  simpleForm('Savings goal',[['name','Name','text',x.name],['op','Opening balance held (S$, optional)','money',x.openingCents?(x.openingCents/100).toFixed(2):''],['tg','Target (S$, optional)','money',x.targetCents?(x.targetCents/100).toFixed(2):'']],async f=>{const o=f.op.trim()?C.cents(f.op):0,t2=f.tg.trim()?C.cents(f.tg):0;if(!f.name.trim()||o===null||t2===null){alert('Check name and amounts.');return}await put('goals',{...x,id:x.id||uid(),name:f.name.trim(),openingCents:o,targetCents:t2});return 1},x.id&&(async()=>{if(D.transactions.some(t=>t.goalId===x.id))return alert('Goal has transactions; cannot delete.');await tx([['del','goals',x.id]]);await load();render()}))}
+ if(id==='nd'||g('[data-d]')){const x=g('[data-d]')?D.debts.find(a=>a.id===g('[data-d]').dataset.d):{};
+  simpleForm('Debt',[['name','Name','text',x.name],['op','Opening outstanding (S$)','money',x.openingCents?(x.openingCents/100).toFixed(2):''],['dueDate','Due date (optional)','date',x.dueDate||''],['note','Note','text',x.note]],async f=>{const o=f.op.trim()?C.cents(f.op):0;if(!f.name.trim()||o===null){alert('Check name and amount.');return}await put('debts',{...x,id:x.id||uid(),name:f.name.trim(),openingCents:o,dueDate:f.dueDate,note:f.note});return 1},x.id&&(async()=>{if(D.transactions.some(t=>t.debtId===x.id))return alert('Debt has transactions; cannot delete.');await tx([['del','debts',x.id]]);await load();render()}))}
+ if(id==='na'){simpleForm('Account',[['name','Name','text',''],['type','Type','select','bank',[['bank','Bank (debit)'],['cash','Cash wallet']]],['op','Opening balance (S$)','money','0.00']],async f=>{const o=Number(f.op);if(!f.name.trim()||!isFinite(o)){alert('Check name and balance.');return}await put('accounts',{id:uid(),name:f.name.trim(),type:f.type,openingCents:Math.round(o*100),currency:'SGD',active:true});return 1})}
+ if(id==='nc'||id==='ns'){const s=id==='nc'?'categories':'sources';simpleForm(id==='nc'?'Category':'Income source',[['name','Name','text',''],...(id==='nc'?[['kind','Kind','select','expense',[['expense','Expense'],['income','Income']]]]:[])],async f=>{if(!f.name.trim()){alert('Name required');return}await put(s,{id:uid(),name:f.name.trim(),kind:f.kind,active:true});return 1})}
+ if(g('[data-tg]')){const[s,i]=g('[data-tg]').dataset.tg.split(':'),x=D[s].find(a=>a.id===i);simpleForm('Edit '+esc(x.name),[['name','Name','text',x.name],['active','Status','select',x.active===false?'0':'1',[['1','Active'],['0','Inactive (kept in history)']]]],async f=>{if(!f.name.trim())return;await put(s,{...x,name:f.name.trim(),active:f.active==='1'});return 1})}
+ if(id==='setup')setup();
+ if(id==='bk'){const o={app:'budget-tracker',version:1,exportedAt:new Date().toISOString(),data:Object.fromEntries(C.STORES.map(s=>[s,D[s]]))};dl('budget-backup-'+today()+'.json',JSON.stringify(o),'application/json');await setCfg({lastBackup:Date.now()})}
+ if(id==='cv')dl('transactions-'+today()+'.csv','\ufeff'+C.csv(D.transactions,nm),'text/csv');
+ if(id==='rs')$('#rf').click();
+ if(id==='pn')setPin();if(id==='pr'){if(await verifyPin('Enter current PIN to remove')){await setCfg({pinHash:null,salt:null})}}
+});
+document.addEventListener('change',async e=>{const t=e.target;
+ if(t.id==='ty'){window.__ty=t.value;render()}if(t.id==='rm'&&t.value){month=t.value;render()}
+ if(t.id==='rf'&&t.files[0]){try{const o=JSON.parse(await t.files[0].text()),err=C.validate(o);if(err)return alert('Restore cancelled: '+err);
+  if(!confirm('This will REPLACE all current data with the backup ('+o.data.transactions.length+' transactions). Continue?'))return;
+  await tx([...C.STORES.map(s=>['clear',s]),...C.STORES.flatMap(s=>o.data[s].map(r=>['put',s,r]))]);await load();render();alert('Restore complete.')}catch(x){alert('Restore failed, existing data unchanged: '+x.message)}t.value=''}});
+document.addEventListener('input',e=>{if(e.target.id==='q'){window.__q=e.target.value;const p=e.target.selectionStart;render();const q=$('#q');q.focus();q.setSelectionRange(p,p)}});
+/* ---------- guided setup ---------- */
+function setup(){simpleForm('Guided setup (all optional except account)',[['an','Account name','text','Bank account'],['at','Type','select','bank',[['bank','Bank (debit)'],['cash','Cash wallet']]],['ao','Opening balance (S$)','money','0.00'],['ec','Expense categories (comma separated, you choose)','text',''],['is','Income sources (e.g. Salary, Side income)','text','Salary, Side income'],['tg','Monthly spending target (S$)','money','2000.00']],async f=>{
+ const o=Number(f.ao),t=C.cents(f.tg);if(!f.an.trim()||!isFinite(o)||!t){alert('Account name, balance and target must be valid.');return}
+ const L=s=>s.split(',').map(x=>x.trim()).filter(Boolean),ops=[['put','accounts',{id:uid(),name:f.an.trim(),type:f.at,openingCents:Math.round(o*100),currency:'SGD',active:true}],...L(f.ec).map(n=>['put','categories',{id:uid(),name:n,kind:'expense',active:true}]),...L(f.is).map(n=>['put','sources',{id:uid(),name:n,kind:'income',active:true}]),['put','budgets',{id:MON(),month:MON(),overallCents:t,limits:{}}]];
+ await tx(ops);await load();render();toast('Setup done. Set category limits in Budgets, add savings/debts/bills in their tabs, and set a PIN in Settings.');return 1})}
+/* ---------- PIN ---------- */
+const b64=u=>btoa(String.fromCharCode(...new Uint8Array(u))),ub64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const hash=async(pin,salt)=>b64(await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:150000,hash:'SHA-256'},await crypto.subtle.importKey('raw',new TextEncoder().encode(pin),'PBKDF2',false,['deriveBits']),256));
+async function setPin(){const p=prompt('New PIN (4–8 digits):');if(p===null)return;if(!/^\d{4,8}$/.test(p))return alert('PIN must be 4–8 digits.');if(prompt('Repeat PIN:')!==p)return alert('PINs did not match.');
+ const s=crypto.getRandomValues(new Uint8Array(16));await setCfg({salt:b64(s),pinHash:await hash(p,s)});alert('PIN set. It does not encrypt your data.')}
+async function verifyPin(msg){const c=cfg(),p=prompt(msg);return p!==null&&await hash(p,ub64(c.salt))===c.pinHash}
+let fails=0,until=0,idle;
+const lock=()=>{if(cfg().pinHash){$('#lock').style.display='flex';$('#pin').value=''}};
+$('#unlock').onclick=async()=>{const c=cfg();if(Date.now()<until)return $('#lockmsg').textContent='Wait '+Math.ceil((until-Date.now())/1000)+'s';
+ if(await hash($('#pin').value,ub64(c.salt))===c.pinHash){fails=0;$('#lock').style.display='none'}else{fails++;if(fails>=3)until=Date.now()+Math.min(300,2**(fails-2))*1000;$('#lockmsg').textContent='Incorrect PIN'+(fails>=3?' — try again later':'')}};
+const bump=()=>{clearTimeout(idle);idle=setTimeout(lock,120000)};['click','touchstart','keydown'].forEach(ev=>addEventListener(ev,bump,{passive:true}));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)lock()});
+/* ---------- boot ---------- */
+(async()=>{try{await open();await load();navigator.storage?.persist?.()}catch(e){document.body.innerHTML='<p style="padding:20px">Storage unavailable: '+esc(e.message)+'. Private browsing blocks saving.</p>';return}
+ render();lock();bump();if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{})})();
+</script></body></html>
