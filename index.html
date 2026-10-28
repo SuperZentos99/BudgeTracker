@@ -167,7 +167,7 @@ Settings(){const c=cfg(),B=C.balances(D.accounts,D.transactions);
  <div class="card"><b>Backup</b><br><small>Last backup: ${c.lastBackup?new Date(c.lastBackup).toLocaleString():'never'}</small><br>
  <button class="b" id="bk">Download JSON backup</button><button class="b g" id="rs">Restore…</button><button class="b g" id="cv">Export CSV</button><input type="file" id="rf" accept=".json" hidden>
  <p><small>Data lives only on this device. Clearing Safari data, deleting the app or losing the phone destroys it. Without a backup it cannot be recovered.</small></p></div>
- <div class="card"><b>PIN lock</b><br><small>${c.pinHash?'PIN is set.':'No PIN set.'} The PIN only gates this screen; it does not encrypt the stored data or exported files.</small><br><button class="b g" id="pn">${c.pinHash?'Change':'Set'} PIN</button>${c.pinHash?'<button class="b g" id="pr">Remove PIN</button>':''}</div>`}};
+ <div class="card"><b>PIN lock</b><br><small>${c.pinHash?'PIN is set.':'No PIN set.'} The PIN only gates this screen; it does not encrypt the stored data or exported files.</small><br><button class="b g" id="pn">${c.pinHash?'Change':'Set'} PIN</button>${c.pinHash?'<button class="b g" id="pr">Remove PIN</button>':''}</div><p><small>App version 1.3 · pie chart + monthly bills</small></p>`}};
 /* ---------- render & events ---------- */
 function render(){$('#nav').innerHTML=TABS.map(t=>`<button class="${t===tab?'on':''}" data-tab="${t}">${t}</button>`).join('');$('#main').innerHTML=V[tab]();
  $('#nav .on')?.scrollIntoView({inline:'center',block:'nearest'})}
